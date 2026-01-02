@@ -4,21 +4,26 @@
 #    ___) \ V  V /| | || (__| | | | |_| | |\  |___) |
 #   |____/ \_/\_/ |_|\__\___|_| |_|____/|_| \_|____/ 
 # 
-# 20250608 - TiiZss
+# 20250608 - TiiZss (Refactored 2026)
 #
 # Script PowerShell para alternar, cambiar y mostrar servidores DNS en Windows 11
 
-# --- Comprobación de privilegios administrativos al inicio ---
-$IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
-if (-not $IsAdmin) {
-    Write-Host ""
-    Write-Host "¡ATENCIÓN! Este script no se está ejecutando con privilegios de administrador." -ForegroundColor Yellow
-    Write-Host "Algunas funciones (cambiar DNS) NO funcionarán correctamente." -ForegroundColor Yellow
-    Write-Host "Ejecuta PowerShell como Administrador para acceso completo." -ForegroundColor Yellow
-    Write-Host ""
-}
+param (
+    [switch]$ContextMenuToggle,
+    [switch]$UpdateStatus
+)
 
-# Muestra el logo ASCII del script en la consola.
+# --- CONFIGURACIÓN GLOBAL ---
+# Puedes editar estos valores según tus necesidades
+$Global:PreferredAdapterName = "Ethernet"
+$Global:ConfigA = @{ Primary = "192.0.2.53"; Secondary = "9.9.9.9" }
+$Global:ConfigB = @{ Primary = "9.9.9.9"; Secondary = "192.0.2.53" }
+$Global:BackupPath = "$env:USERPROFILE\.switchdns_backup.json"
+$Global:RegKeyPath = "HKCU:\Software\Classes\DesktopBackground\Shell\SwitchDNS"
+# ----------------------------
+
+# --- FUNCIONES ---
+
 function Show-Logo {
     Write-Host "   ____          _ _       _     ____  _   _ ____  "
     Write-Host "  / ___|_      _(_) |_ ___| |__ |  _ \| \ | / ___| "
@@ -28,35 +33,32 @@ function Show-Logo {
     Write-Host "                                         by TiiZss "
 }
 
+function Pause-Script {
+    Read-Host "Pulsa Enter para continuar..."
+}
+
 function Test-ValidIP($ip) {
     if ([string]::IsNullOrWhiteSpace($ip)) { return $false }
     $ip = $ip.Trim()
-    # Expresión regular para formato IPv4 clásico
-    if ($ip -notmatch '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$') { return $false }
-    $octetos = $ip -split '\.'
-    foreach ($octeto in $octetos) {
-        if ([int]$octeto -lt 0 -or [int]$octeto -gt 255) { return $false }
+    $ipAddress = $null
+    # Utiliza validación nativa de .NET para mayor robustez
+    $isValid = [System.Net.IPAddress]::TryParse($ip, [ref]$ipAddress)
+    # Asegurar que es IPv4 y no IPv6 para este contexto
+    if ($isValid -and $ipAddress.AddressFamily -eq 'InterNetwork') {
+        return $true
     }
-    return $true
+    return $false
 }
-if (![string]::IsNullOrEmpty($PrimaryDNS) -and -not (Test-ValidIP $PrimaryDNS)) {
-    Write-Error "El DNS primario no es una IP válida."
-    return
-}
-if (![string]::IsNullOrEmpty($SecondaryDNS) -and -not (Test-ValidIP $SecondaryDNS)) {
-    Write-Error "El DNS secundario no es una IP válida."
-    return
-}
-
 
 function Show-CurrentDNS {
     param (
         [string]$AdapterName
     )
+    if ([string]::IsNullOrEmpty($AdapterName)) { return }
+    
     Write-Host ""
     Write-Host "--- Configuración DNS Actual para '$AdapterName' ---"
     try {
-        # Obtener los servidores DNS específicos para el adaptador dado
         $dnsConfig = Get-DnsClientServerAddress -InterfaceAlias $AdapterName -ErrorAction SilentlyContinue
         
         if ($null -ne $dnsConfig -and $dnsConfig.ServerAddresses.Count -gt 0) {
@@ -64,65 +66,108 @@ function Show-CurrentDNS {
             foreach ($dns in $dnsConfig.ServerAddresses) {
                 Write-Host "  - $dns"
             }
-        } else {
-            Write-Host "No se han configurado servidores DNS específicos en este adaptador (posiblemente obteniendo por DHCP)."
+        }
+        else {
+            Write-Host "No se han configurado servidores DNS específicos (o obteniendo por DHCP)."
         }
         Write-Host "---------------------------------------------------"
     }
     catch {
-        Write-Error "No se pudo obtener la configuración DNS actual para '$AdapterName': $($_.Exception.Message)"
+        Write-Error "No se pudo obtener la configuración DNS actual: $($_.Exception.Message)"
     }
     Write-Host ""
 }
 
-
 function Get-MainNetworkAdapter {
-    # Ya no mostrar advertencia aquí, solo en el inicio
     Write-Host "Identificando el adaptador de red principal..."
     
-    # Define el nombre de tu adaptador físico principal para priorizarlo
-    # Basado en tu 'Get-NetAdapter' output, tu adaptador físico es 'Ethernet'
-    $preferredAdapterName = "Ethernet" 
-
-    # Lista de cadenas comunes en descripciones de adaptadores virtuales/VPN para EXCLUIR
-    $excludeDescriptions = @(
-        "VMware Virtual Ethernet Adapter",
-        "VirtualBox Host-Only Ethernet Adapter",
-        "TAP-Windows Adapter V9", 
-        "OpenVPN Data Channel Offload" 
-    )
-
-    # Añadir una pequeña pausa para asegurar que los adaptadores se inicialicen completamente
-    Start-Sleep -Seconds 1 # Espera 1 segundo
-
-    # 1. Intentar encontrar el adaptador preferido por nombre entre todos los activos
-    $mainAdapter = Get-NetAdapter | Where-Object { 
-        $_.Name -eq $preferredAdapterName -and
-        $_.Status -eq "Up" -and 
-        $_.LinkSpeed -ne "0 Bps" -and
-        $null -eq ($excludeDescriptions | Where-Object { $_.Length -gt 0 -and $_ -ne "" -and $_.InterfaceDescription -match $_ })
-    } | Select-Object -First 1
-
-    if ($null -eq $mainAdapter) {
-        Write-Host ""
-        Write-Host "El adaptador preferido '$preferredAdapterName' no se encontró o no está activo/no es físico. Buscando el mejor alternativo..."
-        $mainAdapter = Get-NetAdapter | Where-Object { 
-            $_.Status -eq "Up" -and 
-            $_.LinkSpeed -ne "0 Bps" -and
-            $null -eq ($excludeDescriptions | Where-Object { $_.Length -gt 0 -and $_ -ne "" -and $_.InterfaceDescription -match $_ })
-        } | Select-Object -First 1
+    # 1. Intentar buscar el adaptador preferido por nombre
+    $adapter = Get-NetAdapter -Name $Global:PreferredAdapterName -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" }
+    
+    if ($null -ne $adapter) {
+        Write-Host "Adaptador preferido encontrado: '$($adapter.Name)'."
+        return $adapter
     }
 
-    if ($null -ne $mainAdapter) {
-        Write-Host "Adaptador seleccionado: '$($mainAdapter.Name)'."
-        # No validamos el Gateway aquí, lo haremos al mostrar la configuración
-        return $mainAdapter
+    # 2. Búsqueda inteligente: Buscar adaptador Up con Default Gateway
+    $ipConfigs = Get-NetIPConfiguration | Where-Object { 
+        $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up"
     }
     
-    Write-Warning "No se encontró ningún adaptador de red activo y aparentemente físico para operar."
+    $excludeDescriptions = @("VMware", "VirtualBox", "TAP-Windows", "OpenVPN", "Hyper-V", "Pseudo-Interface")
+
+    $candidate = $null
+
+    foreach ($config in $ipConfigs) {
+        $desc = $config.NetAdapter.InterfaceDescription
+        $isVirtual = $false
+        foreach ($ex in $excludeDescriptions) {
+            if ($desc -match $ex) { $isVirtual = $true; break }
+        }
+        
+        if (-not $isVirtual) {
+            $candidate = $config.NetAdapter
+            break
+        }
+    }
+
+    # Si todos eran virtuales o no se encontró, tomar el primero activo con Gateway
+    if ($null -eq $candidate -and $ipConfigs.Count -gt 0) {
+        $candidate = $ipConfigs[0].NetAdapter
+    }
+
+    if ($null -ne $candidate) {
+        Write-Host "Adaptador activo detectado automáticamente: '$($candidate.Name)'."
+        return $candidate
+    }
+    
+    # 3. Fallback: Primer adaptador UP que no sea virtual (sin Gateway check)
+    $adapter = Get-NetAdapter | Where-Object { 
+        $_.Status -eq "Up" -and $_.LinkSpeed -ne "0 Bps"
+    } | Where-Object {
+        $desc = $_.InterfaceDescription
+        $isVirtual = $false
+        foreach ($ex in $excludeDescriptions) {
+            if ($desc -match $ex) { $isVirtual = $true; break }
+        }
+        -not $isVirtual
+    } | Select-Object -First 1
+
+    if ($null -ne $adapter) {
+        Write-Host "Adaptador alternativo encontrado: '$($adapter.Name)'."
+        return $adapter
+    }
+
+    Write-Warning "No se encontró ningún adaptador de red activo y físico obvio."
     return $null
 }
 
+function Update-ContextMenuLabel {
+    param ([string]$AdapterName)
+    if (-not (Test-Path $Global:RegKeyPath)) { return }
+
+    $label = "Alternar DNS"
+    $adapter = if ($AdapterName) { Get-NetAdapter -Name $AdapterName -ErrorAction SilentlyContinue } else { Get-MainNetworkAdapter }
+    
+    if ($adapter) {
+        $dns = Get-DnsClientServerAddress -InterfaceAlias $adapter.Name -ErrorAction SilentlyContinue
+        $ip = if ($dns.ServerAddresses.Count -gt 0) { $dns.ServerAddresses[0] } else { "DHCP" }
+        
+        # Simplificación para mostrar "Quad9" en lugar de la IP si coincide
+        if ($ip -eq "9.9.9.9") { $ip = "Quad9" }
+        elseif ($ip -eq "192.0.2.53") { $ip = "Pi-Hole/Local" }
+        
+        $label = "Alternar DNS (Actual: $ip)"
+    }
+    else {
+        $label = "Alternar DNS (Sin Adaptador)"
+    }
+    
+    try {
+        Set-ItemProperty -Path $Global:RegKeyPath -Name "(Default)" -Value $label -ErrorAction SilentlyContinue
+    }
+    catch {}
+}
 
 function Set-DNS {
     param (
@@ -132,120 +177,92 @@ function Set-DNS {
         [switch]$ToggleSpecificDNS
     )
 
-    # Definir las configuraciones DNS preestablecidas
-    $configA_Primary = "192.0.2.53"
-    $configA_Secondary = "9.9.9.9"
-
-    $configB_Primary = "9.9.9.9"
-    $configB_Secondary = "192.0.2.53"
-
-    # Obtener el adaptador de red principal usando la nueva función
-    $networkAdapter = Get-MainNetworkAdapter
-
-    if ($null -eq $networkAdapter) {
-        Write-Error "No se pudo identificar un adaptador de red principal. No se pueden cambiar los DNS."
-        return
+    if ($null -eq $Global:CurrentAdapterName) {
+        $adapter = Get-MainNetworkAdapter
+        if ($adapter) { 
+            $Global:CurrentAdapterName = $adapter.Name 
+        }
+        else {
+            Write-Error "No hay un adaptador seleccionado. Por favor reinicia o selecciona uno."
+            return
+        }
     }
 
-    $adapterName = $networkAdapter.Name
-    Write-Host "Procediendo con el adaptador: $($adapterName)"
+    $adapterName = $Global:CurrentAdapterName
+    Write-Host "Aplicando cambios en adaptador: $adapterName"
 
     if ($AutomaticDNS) {
         Write-Host "Configurando DNS automáticamente (DHCP)..."
         try {
-            Set-DnsClientServerAddress -InterfaceAlias $adapterName -ResetServerAddresses
-            Write-Host "¡DNS configurado en automático exitosamente!"
+            Set-DnsClientServerAddress -InterfaceAlias $adapterName -ResetServerAddresses -ErrorAction Stop
+            Write-Host "¡DNS configurado en automático exitosamente!" -ForegroundColor Green
         }
         catch {
             Write-Error "Error al configurar DNS en automático: $($_.Exception.Message)"
         }
     }
     elseif ($ToggleSpecificDNS) {
-        Write-Host "Detectando configuración DNS actual para alternar..."
+        Write-Host "Evaluando configuración para alternar..."
         
-        # Obtener los servidores DNS actuales del adaptador específico
-        $currentDnsClientServerAddress = Get-DnsClientServerAddress -InterfaceAlias $adapterName -ErrorAction SilentlyContinue
-        $currentDnsServers = @()
-        if ($null -ne $currentDnsClientServerAddress) {
-            $currentDnsServers = $currentDnsClientServerAddress.ServerAddresses
+        $currentConfig = Get-DnsClientServerAddress -InterfaceAlias $adapterName -ErrorAction SilentlyContinue
+        $currentIPs = $currentConfig.ServerAddresses
+
+        $currPrim = if ($currentIPs.Count -ge 1) { $currentIPs[0] } else { $null }
+        $currSec = if ($currentIPs.Count -ge 2) { $currentIPs[1] } else { $null }
+
+        $newPrim = $null
+        $newSec = $null
+        $msg = ""
+
+        # Lógica de Toggle usando las variables globales
+        if ($currPrim -eq $Global:ConfigA.Primary -and $currSec -eq $Global:ConfigA.Secondary) {
+            $newPrim = $Global:ConfigB.Primary
+            $newSec = $Global:ConfigB.Secondary
+            $msg = "Detectada Configuración A. Cambiando a Configuración B..."
         }
-
-        $currentPrimary = $null
-        $currentSecondary = $null
-
-        if ($currentDnsServers.Count -gt 0) {
-            $currentPrimary = $currentDnsServers[0]
-        }
-        if ($currentDnsServers.Count -gt 1) {
-            $currentSecondary = $currentDnsServers[1]
-        }
-
-        Write-Host "DNS actual Primario en '$adapterName': $($currentPrimary)"
-        Write-Host "DNS actual Secundario en '$adapterName': $($currentSecondary)"
-
-        $newPrimary = $null
-        $newSecondary = $null
-        $actionMessage = ""
-
-        # Comprobar si la configuración actual coincide con Configuración A
-        if (($currentPrimary -eq $configA_Primary) -and ($currentSecondary -eq $configA_Secondary)) {
-            $newPrimary = $configB_Primary
-            $newSecondary = $configB_Secondary
-            $actionMessage = "Detectada Configuración A. Cambiando a Configuración B..."
-        }
-        # Comprobar si la configuración actual coincide con Configuración B
-        elseif (($currentPrimary -eq $configB_Primary) -and ($currentSecondary -eq $configB_Secondary)) {
-            $newPrimary = $configA_Primary
-            $newSecondary = $configA_Secondary
-            $actionMessage = "Detectada Configuración B. Cambiando a Configuración A..."
+        elseif ($currPrim -eq $Global:ConfigB.Primary -and $currSec -eq $Global:ConfigB.Secondary) {
+            $newPrim = $Global:ConfigA.Primary
+            $newSec = $Global:ConfigA.Secondary
+            $msg = "Detectada Configuración B. Cambiando a Configuración A..."
         }
         else {
-            # Si no coincide con ninguna, aplicar la Configuración A por defecto
-            $newPrimary = $configA_Primary
-            $newSecondary = $configA_Secondary
-            $actionMessage = "Configuración DNS actual no reconocida para alternar. Aplicando Configuración A por defecto..."
+            $newPrim = $Global:ConfigA.Primary
+            $newSec = $Global:ConfigA.Secondary
+            $msg = "Configuración desconocida. Aplicando Configuración A por defecto..."
         }
 
-        Write-Host $actionMessage
-        Write-Host "Configurando nuevo DNS Primario: $newPrimary"
-        Write-Host "Configurando nuevo DNS Secundario: $newSecondary"
-
-        try {
-            Set-DnsClientServerAddress -InterfaceAlias $adapterName -ServerAddresses @($newPrimary, $newSecondary)
-            Write-Host "¡Servidores DNS alternados exitosamente!"
-        }
-        catch {
-            Write-Error "Error al alternar los servidores DNS: $($_.Exception.Message)"
-        }
+        Write-Host $msg -ForegroundColor Cyan
+        Set-DNS -PrimaryDNS $newPrim -SecondaryDNS $newSec
     }
     else {
-        if ([string]::IsNullOrEmpty($PrimaryDNS)) {
-            Write-Error "Debes proporcionar al menos un servidor DNS primario."
+        # Configuración Manual
+        if (-not (Test-ValidIP $PrimaryDNS)) {
+            Write-Error "El DNS primario '$PrimaryDNS' no es válido."
             return
         }
 
-        $dnsServers = @($PrimaryDNS)
-        if (![string]::IsNullOrEmpty($SecondaryDNS)) {
-            $dnsServers += $SecondaryDNS
-        }
-
-        Write-Host "Configurando DNS para '$adapterName' manualmente..."
-        Write-Host "DNS Primario: $PrimaryDNS"
-        if (![string]::IsNullOrEmpty($SecondaryDNS)) {
-            Write-Host "DNS Secundario: $SecondaryDNS"
+        $dnsList = @($PrimaryDNS)
+        if (-not [string]::IsNullOrEmpty($SecondaryDNS)) {
+            if (Test-ValidIP $SecondaryDNS) {
+                $dnsList += $SecondaryDNS
+            }
+            else {
+                Write-Warning "El DNS secundario '$SecondaryDNS' no es válido y será ignorado."
+            }
         }
 
         try {
-            Set-DnsClientServerAddress -InterfaceAlias $adapterName -ServerAddresses $dnsServers
-            Write-Host "¡Servidores DNS configurados manualmente exitosamente!"
+            Set-DnsClientServerAddress -InterfaceAlias $adapterName -ServerAddresses $dnsList -ErrorAction Stop
+            Write-Host "¡DNS configurado manualmente a ($($dnsList -join ', '))!" -ForegroundColor Green
         }
         catch {
-            Write-Error "Error al configurar los servidores DNS: $($_.Exception.Message)"
+            Write-Error "Error al establecer DNS: $($_.Exception.Message)"
         }
     }
 
-    # Mostrar la configuración DNS actual después de cada operación para el adaptador procesado
     Show-CurrentDNS -AdapterName $adapterName
+    # Actualizar etiqueta tras cambio manual/interactivo
+    Update-ContextMenuLabel -AdapterName $adapterName
 }
 
 function Show-AllDNS {
@@ -254,246 +271,237 @@ function Show-AllDNS {
 
     foreach ($adapter in $adapters) {
         $dnsConfig = Get-DnsClientServerAddress -InterfaceAlias $adapter.Name -ErrorAction SilentlyContinue
-        $dns1 = ""
-        $dns2 = ""
-        if ($null -ne $dnsConfig -and $dnsConfig.ServerAddresses.Count -gt 0) {
-            $dns1 = $dnsConfig.ServerAddresses[0]
-            if ($dnsConfig.ServerAddresses.Count -gt 1) {
-                $dns2 = $dnsConfig.ServerAddresses[1]
-            }
+        $d1 = ""; $d2 = ""
+        if ($dnsConfig -and $dnsConfig.ServerAddresses.Count -gt 0) {
+            $d1 = $dnsConfig.ServerAddresses[0]
+            if ($dnsConfig.ServerAddresses.Count -gt 1) { $d2 = $dnsConfig.ServerAddresses[1] }
         }
-        # Siempre agrega el adaptador, aunque no tenga DNS configurados
         $results += [PSCustomObject]@{
             Adaptador = $adapter.Name
-            DNS1      = $dns1
-            DNS2      = $dns2
+            DNS1      = $d1
+            DNS2      = $d2
         }
     }
 
     if ($results.Count -gt 0) {
         $results | Format-Table -AutoSize
-    } else {
-        Write-Host "No hay adaptadores de red activos."
+    }
+    else {
+        Write-Host "No hay adaptadores activos."
     }
 }
 
-# --- Función para mostrar la configuración DNS de un adaptador en formato tabla ---
 function Show-DNSConfigTable {
-    param (
-        [Parameter(Mandatory = $true)]
-        [string]$AdapterName
-    )
+    param ([string]$AdapterName)
+    if ([string]::IsNullOrEmpty($AdapterName)) { return }
+
     $dnsConfig = Get-DnsClientServerAddress -InterfaceAlias $AdapterName -ErrorAction SilentlyContinue
-    $dns1 = ""
-    $dns2 = ""
-    if ($null -ne $dnsConfig -and $dnsConfig.ServerAddresses.Count -gt 0) {
-        $dns1 = $dnsConfig.ServerAddresses[0]
-        if ($dnsConfig.ServerAddresses.Count -gt 1) {
-            $dns2 = $dnsConfig.ServerAddresses[1]
-        }
+    $d1 = ""; $d2 = ""
+    if ($dnsConfig -and $dnsConfig.ServerAddresses.Count -gt 0) {
+        $d1 = $dnsConfig.ServerAddresses[0]
+        if ($dnsConfig.ServerAddresses.Count -gt 1) { $d2 = $dnsConfig.ServerAddresses[1] }
     }
-    $result = [PSCustomObject]@{
+    
+    [PSCustomObject]@{
         Adaptador = $AdapterName
-        DNS1      = $dns1
-        DNS2      = $dns2
-    }
-    $result | Format-Table -AutoSize
+        DNS1      = $d1
+        DNS2      = $d2
+    } | Format-Table -AutoSize
 }
 
-# --- Bloque de ejecución principal del script ---
-#Clear-Host 
-Show-Logo # Call the function to display the ASCII art
-Write-Host "=================================================================="
-Write-Host " Script para Alternar, Cambiar y Mostrar Servidor DNS (Windows 11)"
-Write-Host "=================================================================="
-    
-# Detección inicial del adaptador principal
-$initialNetworkAdapter = Get-MainNetworkAdapter
+# --- LÓGICA DE EJECUCIÓN ---
 
-# Si no se detecta automáticamente, permitir selección manual
-if ($null -eq $initialNetworkAdapter) {
-    Write-Host ""
-    Write-Warning "No se detectó un adaptador principal automáticamente."
-    $adapters = Get-NetAdapter | Where-Object { $_.Status -eq "Up" }
-    if ($adapters.Count -eq 0) {
-        Write-Error "No hay adaptadores de red activos disponibles."
+# --- Comprobación de privilegios administrativos al inicio ---
+$IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
+if (-not $IsAdmin) {
+    if ($UpdateStatus) {
+        Update-ContextMenuLabel
         exit
     }
-    Write-Host "Selecciona un adaptador de red de la siguiente lista:"
-    $i = 1
-    foreach ($adapter in $adapters) {
-        Write-Host "$i. $($adapter.Name) - $($adapter.InterfaceDescription)"
-        $i++
+    if ($ContextMenuToggle) {
+        # Si se llama desde el context menu sin admin, intentar elevar
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -ContextMenuToggle" -Verb RunAs
+        exit
     }
-    do {
-        $sel = Read-Host "Introduce el número de adaptador (1-$($adapters.Count))"
-        $isValid = ($sel -as [int]) -and $sel -ge 1 -and $sel -le $adapters.Count
-        if (-not $isValid) { Write-Host "Selección no válida. Intenta de nuevo." }
-    } while (-not $isValid)
-    $initialNetworkAdapter = $adapters[$sel - 1]
-    Write-Host "Adaptador seleccionado: $($initialNetworkAdapter.Name)"
+    Write-Host ""
+    Write-Host "¡ATENCIÓN! Este script no se está ejecutando con privilegios de administrador." -ForegroundColor Yellow
+    Write-Host "Algunas funciones (cambiar DNS) NO funcionarán correctamente." -ForegroundColor Yellow
+    Write-Host "Ejecuta PowerShell como Administrador para acceso completo." -ForegroundColor Yellow
+    Write-Host ""
+}
+
+# --- Mode: Update Status Only ---
+if ($UpdateStatus) {
+    Update-ContextMenuLabel
+    exit
+}
+
+# --- Mode de ejecución desde Menú Contextual ---
+if ($ContextMenuToggle) {
+    $adapter = Get-MainNetworkAdapter
+    if (-not $adapter) {
+        Add-Type -AssemblyName System.Windows.Forms
+        $notify = New-Object System.Windows.Forms.NotifyIcon
+        $notify.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon((Get-Process -Id $pid).Path)
+        $notify.Visible = $true
+        $notify.ShowBalloonTip(3000, "Error DNS", "No se encontró adaptador activo.", [System.Windows.Forms.ToolTipIcon]::Error)
+        exit
+    }
+    
+    $adapterName = $adapter.Name
+    $Global:CurrentAdapterName = $adapterName
+    $currConfig = Get-DnsClientServerAddress -InterfaceAlias $adapterName -ErrorAction SilentlyContinue
+    $p = if ($currConfig.ServerAddresses.Count -ge 1) { $currConfig.ServerAddresses[0] } else { $null }
+
+    # Quad9 IPs
+    $q9P = "9.9.9.9"
+    $q9S = "149.112.112.112"
+
+    Add-Type -AssemblyName System.Windows.Forms
+    $notify = New-Object System.Windows.Forms.NotifyIcon
+    $notify.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon((Get-Process -Id $pid).Path)
+    $notify.Visible = $true
+
+    try {
+        if ($p -eq $q9P) {
+            # Estamos en Quad9 -> Restaurar anterior
+            if (Test-Path $Global:BackupPath) {
+                $backup = Get-Content $Global:BackupPath | ConvertFrom-Json
+                if ($backup.Mode -eq 'Auto') {
+                    Set-DnsClientServerAddress -InterfaceAlias $adapterName -ResetServerAddresses -ErrorAction Stop
+                    $msg = "DNS Restaurado a Automático (DHCP)."
+                }
+                else {
+                    $ips = @($backup.Primary)
+                    if ($backup.Secondary) { $ips += $backup.Secondary }
+                    Set-DnsClientServerAddress -InterfaceAlias $adapterName -ServerAddresses $ips -ErrorAction Stop
+                    $msg = "DNS Restaurado a configuración previa."
+                }
+                Remove-Item $Global:BackupPath -Force
+                $notify.ShowBalloonTip(3000, "SwitchDNS", $msg, [System.Windows.Forms.ToolTipIcon]::Info)
+            }
+            else {
+                Set-DnsClientServerAddress -InterfaceAlias $adapterName -ResetServerAddresses -ErrorAction Stop
+                $notify.ShowBalloonTip(3000, "SwitchDNS", "Restaurado a Automático (Sin backup).", [System.Windows.Forms.ToolTipIcon]::Info)
+            }
+        }
+        else {
+            # Ir a Quad9
+            $backupObj = @{ Mode = "Manual"; Primary = $p; Secondary = $null }
+            if (-not $p) { $backupObj.Mode = "Auto" }
+            else { if ($currConfig.ServerAddresses.Count -gt 1) { $backupObj.Secondary = $currConfig.ServerAddresses[1] } }
+            
+            $backupObj | ConvertTo-Json | Set-Content $Global:BackupPath -Encoding UTF8
+            
+            Set-DnsClientServerAddress -InterfaceAlias $adapterName -ServerAddresses @($q9P, $q9S) -ErrorAction Stop
+            $notify.ShowBalloonTip(3000, "SwitchDNS", "Activado Quad9 Secure DNS.", [System.Windows.Forms.ToolTipIcon]::Info)
+        }
+    }
+    catch {
+        $notify.ShowBalloonTip(3000, "SwitchDNS Error", "Fallo al cambiar DNS: $($_.Exception.Message)", [System.Windows.Forms.ToolTipIcon]::Error)
+    }
+    
+    Update-ContextMenuLabel -AdapterName $adapterName
+
+    Start-Sleep -Seconds 3
+    $notify.Visible = $false
+    exit
+}
+
+# --- INTERFAZ INTERACTIVA ---
+Show-Logo
+Write-Host "=================================================================="
+Write-Host " Script para Alternar, Cambiar y Mostrar Servidor DNS (Optimizado)"
+Write-Host "=================================================================="
+
+# Detección inicial
+$initialAdapter = Get-MainNetworkAdapter
+
+if ($initialAdapter) {
+    $Global:CurrentAdapterName = $initialAdapter.Name
+}
+else {
+    Write-Warning "No se detectó adaptador automáticamente."
+    $adapters = Get-NetAdapter | Where-Object { $_.Status -eq "Up" }
+    if ($adapters.Count -gt 0) {
+        Write-Host "Selecciona un adaptador:"
+        $i = 1
+        foreach ($a in $adapters) { Write-Host "$i. $($a.Name) - $($a.InterfaceDescription)"; $i++ }
+        do {
+            $sel = Read-Host "Número (1-$($adapters.Count))"
+        } while ($sel -as [int] -lt 1 -or $sel -as [int] -gt $adapters.Count)
+        $Global:CurrentAdapterName = $adapters[[int]$sel - 1].Name
+        Write-Host "Seleccionado: $Global:CurrentAdapterName"
+    }
+    else {
+        Write-Error "No hay adaptadores disponibles. Saliendo."
+        exit
+    }
 }
 
 do {
+    Write-Host ""
+    Show-DNSConfigTable -AdapterName $Global:CurrentAdapterName
     
-    # Muestra la configuración DNS actual aquí para el adaptador detectado
-    if ($null -ne $initialNetworkAdapter) {
-        Show-DNSConfigTable -AdapterName $initialNetworkAdapter.Name
-    } else {
-        Write-Warning "No se pudo identificar un adaptador de red principal."
-        Write-Warning "Asegúrate de que tu adaptador '$preferredAdapterName' esté activo o selecciona un adaptador manualmente si persisten los problemas."
-    }
+    $adminTag = if ($IsAdmin) { "" } else { " (Requiere Admin)" }
+    $color = if ($IsAdmin) { "Green" } else { "Red" }
 
-    # Menú coloreado según privilegios
-    if ($IsAdmin) {
-        Write-Host "1. Alternar entre 192.0.2.53/9.9.9.9 y 9.9.9.9/192.0.2.53" -ForegroundColor Green
-        Write-Host "2. Configurar DNS Manualmente (otros valores)" -ForegroundColor Green
-        Write-Host "3. Configurar DNS Automáticamente (DHCP)" -ForegroundColor Green
-        Write-Host "4. Mostrar configuración DNS actual (Actualizar vista)" -ForegroundColor Green
-        Write-Host "5. Mostrar DNS de todos los adaptadores" -ForegroundColor Green
-        Write-Host "0. Salir" -ForegroundColor Green
-    } else {
-        Write-Host "1. Alternar entre 192.0.2.53/9.9.9.9 y 9.9.9.9/192.0.2.53" -ForegroundColor Red
-        Write-Host "2. Configurar DNS Manualmente (otros valores)" -ForegroundColor Red
-        Write-Host "3. Configurar DNS Automáticamente (DHCP)" -ForegroundColor Red
-        Write-Host "4. Mostrar configuración DNS actual (Actualizar vista)" -ForegroundColor Green
-        Write-Host "5. Mostrar DNS de todos los adaptadores" -ForegroundColor Green
-        Write-Host "0. Salir" -ForegroundColor Green
-    }
+    Write-Host "1. Alternar DNS ($($Global:ConfigA.Primary) <-> $($Global:ConfigB.Primary))$adminTag" -ForegroundColor $color
+    Write-Host "2. Configurar DNS Manualmente$adminTag" -ForegroundColor $color
+    Write-Host "3. Configurar Automático (DHCP)$adminTag" -ForegroundColor $color
+    Write-Host "4. Refrescar Vista / Cambiar Adaptador" -ForegroundColor Green
+    Write-Host "5. Ver Todos los Adaptadores" -ForegroundColor Green
+    Write-Host "0. Salir" -ForegroundColor Green
     Write-Host ""
 
-    $choice = Read-Host "Elige una opción (0-5)"
+    $choice = Read-Host "Elige una opción"
 
     switch ($choice) {
         "1" {
-            if (-not $IsAdmin) {
-                Write-Host "Necesitas ejecutar el script como administrador para utilizar esta opción." -ForegroundColor Yellow
-            } else {
-                Set-DNS -ToggleSpecificDNS
-            }
-            Read-Host "Pulsa Enter para continuar..."
+            if (-not $IsAdmin) { Write-Warning "Requiere permisos de Administrador."; Pause-Script; continue }
+            Set-DNS -ToggleSpecificDNS
+            Pause-Script
         }
         "2" {
-            if (-not $IsAdmin) {
-                Write-Host "Necesitas ejecutar el script como administrador para utilizar esta opción." -ForegroundColor Yellow
-                Read-Host "Pulsa Enter para continuar..."
-                continue
-            }
-            # Mostrar tabla de servidores DNS públicos
+            if (-not $IsAdmin) { Write-Warning "Requiere permisos de Administrador."; Pause-Script; continue }
+            
             $publicDNS = @(
-                [PSCustomObject]@{ Proveedor = "Google";        DNS1 = "8.8.8.8";         DNS2 = "8.8.4.4" }
-                [PSCustomObject]@{ Proveedor = "Cloudflare";    DNS1 = "1.1.1.1";         DNS2 = "1.0.0.1" }
-                [PSCustomObject]@{ Proveedor = "Quad9";         DNS1 = "9.9.9.9";         DNS2 = "149.112.112.112" }
-                [PSCustomObject]@{ Proveedor = "OpenDNS";       DNS1 = "208.67.222.222";  DNS2 = "208.67.220.220" }
-                [PSCustomObject]@{ Proveedor = "Comodo Secure"; DNS1 = "8.26.56.26";      DNS2 = "8.20.247.20" }
-                [PSCustomObject]@{ Proveedor = "CleanBrowsing"; DNS1 = "185.228.168.9";   DNS2 = "185.228.169.9" }
-                [PSCustomObject]@{ Proveedor = "Yandex.DNS";    DNS1 = "77.88.8.8";       DNS2 = "77.88.8.1" }
-                [PSCustomObject]@{ Proveedor = "Neustar DNS";   DNS1 = "156.154.70.1";    DNS2 = "156.154.71.1" }
-                [PSCustomObject]@{ Proveedor = "AdGuard DNS";   DNS1 = "94.140.14.14";    DNS2 = "94.140.15.15" }
+                @{ N = "Google"; P = "8.8.8.8"; S = "8.8.4.4" }
+                @{ N = "Cloudflare"; P = "1.1.1.1"; S = "1.0.0.1" }
+                @{ N = "Quad9"; P = "9.9.9.9"; S = "149.112.112.112" }
             )
-            Write-Host ""
-            Write-Host "Servidores DNS públicos recomendados:"
-            $publicDNS | Format-Table -AutoSize
-            Write-Host ""
+            Write-Host "--- Referencia DNS Públicos ---"
+            foreach ($p in $publicDNS) { Write-Host "$($p.N): $($p.P) / $($p.S)" }
+            Write-Host "-------------------------------"
 
-            # Validar DNS primario al introducirlo (máximo 3 intentos)
-            $maxTries = 3
-            $try = 0
-            $dnsPrimary = ""
-            do {
-                $dnsPrimary = Read-Host "Introduce el servidor DNS Primario (Ej: 8.8.8.8)"
-                $try++
-                if (-not (Test-ValidIP $dnsPrimary)) {
-                    Write-Host "El DNS primario no es una IP válida." -ForegroundColor Red
-                    if ($try -ge $maxTries) {
-                        Write-Host "Has superado el número máximo de intentos. No se aplican cambios. Volviendo al menú..." -ForegroundColor Yellow
-                        Read-Host "Pulsa Enter para continuar..."
-                        continue
-                    }
-                }
-            } while (-not (Test-ValidIP $dnsPrimary) -and $try -lt $maxTries)
+            $pDNS = Read-Host "DNS Primario"
+            if (-not (Test-ValidIP $pDNS)) { Write-Error "IP Inválida."; Pause-Script; continue }
+            
+            $sDNS = Read-Host "DNS Secundario (Opcional)"
+            if ($sDNS -and -not (Test-ValidIP $sDNS)) { Write-Error "IP Inválida."; Pause-Script; continue }
 
-            # Si después de 3 intentos el DNS primario sigue siendo inválido, volver al menú
-            if (-not (Test-ValidIP $dnsPrimary)) {
-                continue
-            }
-
-            # Solo preguntar por el DNS secundario si el primario es válido
-            $maxTriesSec = 3
-            $trySec = 0
-            $dnsSecondary = ""
-            do {
-                $dnsSecondary = Read-Host "Introduce el servidor DNS Secundario (Opcional, Ej: 8.8.4.4). Deja en blanco si no quieres uno."
-                $trySec++
-                if ($dnsSecondary -and -not (Test-ValidIP $dnsSecondary)) {
-                    Write-Host "El DNS secundario no es una IP válida." -ForegroundColor Red
-                    if ($trySec -ge $maxTriesSec) {
-                        Write-Host "Has superado el número máximo de intentos. No se aplican cambios. Volviendo al menú..." -ForegroundColor Yellow
-                        Read-Host "Pulsa Enter para continuar..."
-                        continue
-                    }
-                }
-            } while ($dnsSecondary -and -not (Test-ValidIP $dnsSecondary) -and $trySec -lt $maxTriesSec)
-
-            # Si el DNS secundario sigue siendo inválido después de 3 intentos, volver al menú
-            if ($dnsSecondary -and -not (Test-ValidIP $dnsSecondary)) {
-                continue
-            }
-
-            # Confirmar antes de aplicar el cambio
-            Write-Host ""
-            Write-Host "Vas a aplicar la siguiente configuración DNS:"
-            Write-Host "  DNS Primario:   $dnsPrimary"
-            if ($dnsSecondary) {
-                Write-Host "  DNS Secundario: $dnsSecondary"
-            }
-            $confirm = Read-Host "¿Quieres aplicar estos cambios? (S/N)"
-            if ($confirm -notin @('S','s','Y','y','Sí','si','SI')) {
-                Write-Host "No se realizaron cambios. Volviendo al menú..."
-                Read-Host "Pulsa Enter para continuar..."
-                continue
-            }
-
-            Set-DNS -PrimaryDNS $dnsPrimary -SecondaryDNS $dnsSecondary
-
-            # Mostrar la configuración DNS actual en formato tabla después de configurar manualmente
-            if ($null -ne $initialNetworkAdapter) {
-                Show-DNSConfigTable -AdapterName $initialNetworkAdapter.Name
-            } else {
-                Write-Warning "No se pudo identificar un adaptador de red principal."
-            }
-
-            Read-Host "Pulsa Enter para continuar..."
+            Set-DNS -PrimaryDNS $pDNS -SecondaryDNS $sDNS
+            Pause-Script
         }
         "3" {
-            if (-not $IsAdmin) {
-                Write-Host "Necesitas ejecutar el script como administrador para utilizar esta opción." -ForegroundColor Yellow
-            } else {
-                Set-DNS -AutomaticDNS
-            }
-            Read-Host "Pulsa Enter para continuar..."
+            if (-not $IsAdmin) { Write-Warning "Requiere permisos de Administrador."; Pause-Script; continue }
+            Set-DNS -AutomaticDNS
+            Pause-Script
         }
-        "4" { 
-            Write-Host "Actualizando la vista de la configuración DNS..."
-            $initialNetworkAdapter = Get-MainNetworkAdapter 
-            if ($null -ne $initialNetworkAdapter) {
-                Show-DNSConfigTable -AdapterName $initialNetworkAdapter.Name
-            } else {
-                Write-Warning "No se pudo identificar un adaptador de red principal."
+        "4" {
+            $newAdapter = Get-MainNetworkAdapter
+            if ($newAdapter) { 
+                $Global:CurrentAdapterName = $newAdapter.Name
+                Write-Host "Adaptador actualizado a: $($newAdapter.Name)"
             }
-            Read-Host "Pulsa Enter para continuar..."
+            Pause-Script
         }
         "5" {
             Show-AllDNS
-            Read-Host "Pulsa Enter para continuar..."
+            Pause-Script
         }
-        "0" {
-            Write-Host "Saliendo del script. ¡Adiós!"
-            exit
-        }
-        default {
-            Write-Host "Opción no válida. Por favor, elige un número entre 0 y 5."
-            Read-Host "Pulsa Enter para continuar..."
-        }
+        "0" { exit }
+        default { Write-Host "Opción inválida." }
     }
+
 } while ($true)
