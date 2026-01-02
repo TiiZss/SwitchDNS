@@ -2,9 +2,9 @@
 
 <div align="center">
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/TiiZss/SwitchDNS?style=for-the-badge)
-![GitHub license](https://img.shields.io/github/license/TiiZss/SwitchDNS?style=for-the-badge)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support%20my%20work-orange?style=for-the-badge&logo=buymeacoffee&logoColor=white)](https://www.buymeacoffee.com/tiizss)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/TiiZss/SwitchDNS?style=flat)
+![GitHub license](https://img.shields.io/github/license/TiiZss/SwitchDNS?style=flat)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support%20my%20work-orange?style=flat&logo=buymeacoffee&logoColor=white)](https://www.buymeacoffee.com/tiizss)
 
 **La herramienta definitiva para gestionar tu configuración DNS en Windows.**
 Cambia entre privacidad y velocidad con un solo clic.
