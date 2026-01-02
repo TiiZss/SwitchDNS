@@ -1,52 +1,100 @@
 # SwitchDNS
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/TiiZss/SwitchDNS)
-![GitHub license](https://img.shields.io/github/license/TiiZss/SwitchDNS)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support%20my%20work-orange?style=flat&logo=buymeacoffee&logoColor=white)](https://www.buymeacoffee.com/tiizss)
+<div align="center">
 
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/TiiZss/SwitchDNS?style=for-the-badge)
+![GitHub license](https://img.shields.io/github/license/TiiZss/SwitchDNS?style=for-the-badge)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support%20my%20work-orange?style=for-the-badge&logo=buymeacoffee&logoColor=white)](https://www.buymeacoffee.com/tiizss)
 
-Script PowerShell avanzado para gestionar cambiar y alternar servidores DNS en Windows 11 de forma rápida y sencilla.
+**La herramienta definitiva para gestionar tu configuración DNS en Windows.**
+Cambia entre privacidad y velocidad con un solo clic.
 
-## Características
+</div>
 
-*   **Alternancia Rápida**: Cambia entre una configuración DNS personalizada (ej. Pi-Hole) y DNS públicos (ej. Quad9) con un solo comando.
-*   **Integración en Menú Contextual**: Haz clic derecho en el escritorio para alternar el DNS sin abrir consolas.
-    *   Muestra el estado actual del DNS directamente en el menú (ej. "Alternar DNS (Actual: Quad9)").
-*   **Detección Inteligente**: Identifica automáticamente el adaptador de red activo principal.
-*   **Configuración y Restauración**: Guarda tu configuración actual antes de cambiar y la restaura automáticamente.
-*   **Soporte UTF-8**: Manejo correcto de caracteres especiales.
+---
 
-## Instalación del Menú Contextual
+## 📝 Descripción
 
-Para añadir la opción al menú de clic derecho del escritorio:
+**SwitchDNS** es una utilidad avanzada escrita en PowerShell diseñada para simplificar la gestión de servidores DNS en Windows 11. Olvídate de navegar por menús de configuración interminables. Con SwitchDNS, puedes alternar entre tus servidores DNS favoritos (como tu Pi-Hole local y Quad9) directamente desde el menú contextual de tu escritorio, o usar una interfaz de consola amigable.
 
-1.  Ejecuta el script `Install-ContextMenu.ps1` con PowerShell.
-    ```powershell
-    .\Install-ContextMenu.ps1
-    ```
-2.  ¡Listo! Ahora verás la opción **"Alternar DNS..."** al hacer clic derecho en el fondo del escritorio.
+## ✨ Características Principales
 
-Para eliminarlo, simplemente ejecuta `Uninstall-ContextMenu.ps1`.
+*   🚀 **Alternancia Instantánea**: Cambia entre dos configuraciones predefinidas (A y B) en segundos.
+*   🖱️ **Integración en Escritorio**: Accede a SwitchDNS haciendo clic derecho en el fondo de tu escritorio.
+*   🏷️ **Smart Labels**: El menú contextual te dice qué DNS estás usando actualmente sin tener que abrirlo.
+*   🧠 **Detección Inteligente**: Detecta automáticamente tu adaptador de red activo con internet.
+*   🛡️ **Backup & Restore**: Si cambias a un DNS público temporalmente, SwitchDNS recuerda tu configuración original para restaurarla después.
+*   🌐 **Soporte UTF-8**: Compatible con todos los caracteres y configuraciones regionales.
 
-## Uso Manual
+## 📦 Instalación
 
-Puedes ejecutar el script principal `SwitchDNS.ps1` directamente para acceder al menú interactivo:
+### Requisitos Previos
+*   Windows 10 o Windows 11.
+*   PowerShell 5.1 o superior.
+*   Permisos de Administrador (para cambiar la configuración de red).
 
-```powershell
-.\SwitchDNS.ps1
+### Configuración Rápida (Menú Contextual)
+
+1.  Descarga el repositorio o los scripts.
+2.  Haz clic derecho en `Install-ContextMenu.ps1` y selecciona **Ejecutar con PowerShell**.
+3.  ¡Listo! Ahora verás la opción **"Alternar DNS..."** en tu escritorio.
+
+![Context Menu Screenshot](https://raw.githubusercontent.com/TiiZss/SwitchDNS/main/header.png) *(Imagen de ejemplo)*
+
+## 🎮 Uso
+
+### Modo Menú Contextual (Recomendado)
+1.  Ve al escritorio.
+2.  Haz **Clic Derecho** en el fondo (en Windows 11, pulsa *Mostrar más opciones* si no sale directo).
+3.  Selecciona **SwitchDNS (Actual: ...)**.
+    *   Si tenías tu DNS local -> Cambia a Quad9.
+    *   Si tenías Quad9 -> Restaura tu DNS anterior.
+4.  Recibirás una notificación confirmando el cambio.
+
+### Modo Interactivo (Consola)
+Ejecuta `SwitchDNS.ps1` directamente para abrir el menú completo:
+
+```text
+==================================================================
+ Script para Alternar, Cambiar y Mostrar Servidor DNS (Optimizado)
+==================================================================
+
+1. Alternar DNS (192.0.2.53 <-> 9.9.9.9)
+2. Configurar DNS Manualmente
+3. Configurar Automático (DHCP)
+4. Refrescar Vista / Cambiar Adaptador
+5. Ver Todos los Adaptadores
+0. Salir
 ```
 
-### Opciones del Menú
-1.  **Alternar DNS**: Cambia entre tus configuraciones A y B definidas.
-2.  **Configurar Manualmente**: Establece servidores DNS específicos.
-3.  **Automático (DHCP)**: Restablece la configuración a automática.
-4.  **Refrescar/Ver**: Muestra la configuración actual de todos los adaptadores.
+## ⚙️ Configuración Avanzada
 
-## Configuración
-
-Puedes editar las variables al inicio de `SwitchDNS.ps1` para personalizar tus servidores preferidos:
+Puedes personalizar las direcciones IP predeterminadas editando las primeras líneas de `SwitchDNS.ps1`:
 
 ```powershell
-$Global:ConfigA = @{ Primary = "192.0.2.53"; Secondary = "9.9.9.9" }
-$Global:ConfigB = @{ Primary = "9.9.9.9"; Secondary = "192.0.2.53" }
+# --- CONFIGURACIÓN GLOBAL ---
+$Global:PreferredAdapterName = "Ethernet" # Nombre preferido (opcional)
+$Global:ConfigA = @{ Primary = "192.0.2.53"; Secondary = "9.9.9.9" } # Tu DNS Local / Pi-Hole
+$Global:ConfigB = @{ Primary = "9.9.9.9"; Secondary = "192.0.2.53" } # DNS Público / Seguro
 ```
+
+## 🗑️ Desinstalación
+
+Para eliminar la integración del menú contextual, ejecuta el script:
+```powershell
+.\Uninstall-ContextMenu.ps1
+```
+
+## 🤝 Contribuciones
+
+¡Las contribuciones son bienvenidas! Si tienes ideas para mejorar el script, no dudes en abrir un Issue o un Pull Request.
+
+## ☕ Apóyame
+
+Si este script te ha sido útil, considera invitarme a un café. ¡Ayuda a mantener el código fluyendo!
+
+<a href="https://www.buymeacoffee.com/tiizss" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+## 📄 Licencia
+
+Este proyecto está bajo la Licencia MIT. Consulta el archivo `LICENSE` para más detalles.
