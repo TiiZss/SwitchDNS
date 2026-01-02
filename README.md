@@ -40,7 +40,7 @@ Cambia entre privacidad y velocidad con un solo clic.
 
 1.  Descarga el repositorio o los scripts.
 2.  Haz clic derecho en `Install-ContextMenu.ps1` y selecciona **Ejecutar con PowerShell**.
-3.  ¡Listo! Ahora verás la opción **"Alternar DNS..."** en el menú contextualtu escritorio.
+3.  ¡Listo! Ahora verás la opción **"Alternar DNS..."** en el menú contextual de tu escritorio.
 
 ## 🎮 Uso
 
@@ -93,6 +93,8 @@ Para eliminar la integración del menú contextual, ejecuta el script:
 ## ☕ Apóyame
 
 Si este script te ha sido útil, considera invitarme a un café. ¡Ayuda a mantener el código fluyendo!
+
+⭐ **Si encuentras útil este proyecto, ¡por favor considera darle una estrella!**
 
 <a href="https://www.buymeacoffee.com/tiizss" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
