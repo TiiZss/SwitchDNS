@@ -3,7 +3,7 @@
 <div align="center">
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/TiiZss/SwitchDNS?style=flat)
-![GitHub license](https://img.shields.io/github/license/TiiZss/SwitchDNS?style=flat)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](https://opensource.org/licenses/MIT)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support%20my%20work-orange?style=flat&logo=buymeacoffee&logoColor=white)](https://www.buymeacoffee.com/tiizss)
 
 **La herramienta definitiva para gestionar tu configuración DNS en Windows.**
@@ -37,9 +37,7 @@ Cambia entre privacidad y velocidad con un solo clic.
 
 1.  Descarga el repositorio o los scripts.
 2.  Haz clic derecho en `Install-ContextMenu.ps1` y selecciona **Ejecutar con PowerShell**.
-3.  ¡Listo! Ahora verás la opción **"Alternar DNS..."** en tu escritorio.
-
-![Context Menu Screenshot](https://raw.githubusercontent.com/TiiZss/SwitchDNS/main/header.png) *(Imagen de ejemplo)*
+3.  ¡Listo! Ahora verás la opción **"Alternar DNS..."** en el menú contextualtu escritorio.
 
 ## 🎮 Uso
 
