@@ -33,7 +33,7 @@ function Show-Logo {
     Write-Host "                                         by TiiZss "
 }
 
-function Pause-Script {
+function Wait-UserPress {
     Read-Host "Pulsa Enter para continuar..."
 }
 
@@ -91,7 +91,7 @@ function Get-MainNetworkAdapter {
 
     # 2. Búsqueda inteligente: Buscar adaptador Up con Default Gateway
     $ipConfigs = Get-NetIPConfiguration | Where-Object { 
-        $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up"
+        $null -ne $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq "Up"
     }
     
     $excludeDescriptions = @("VMware", "VirtualBox", "TAP-Windows", "OpenVPN", "Hyper-V", "Pseudo-Interface")
@@ -458,12 +458,12 @@ do {
 
     switch ($choice) {
         "1" {
-            if (-not $IsAdmin) { Write-Warning "Requiere permisos de Administrador."; Pause-Script; continue }
+            if (-not $IsAdmin) { Write-Warning "Requiere permisos de Administrador."; Wait-UserPress; continue }
             Set-DNS -ToggleSpecificDNS
-            Pause-Script
+            Wait-UserPress
         }
         "2" {
-            if (-not $IsAdmin) { Write-Warning "Requiere permisos de Administrador."; Pause-Script; continue }
+            if (-not $IsAdmin) { Write-Warning "Requiere permisos de Administrador."; Wait-UserPress; continue }
             
             $publicDNS = @(
                 @{ N = "Google"; P = "8.8.8.8"; S = "8.8.4.4" }
@@ -475,18 +475,18 @@ do {
             Write-Host "-------------------------------"
 
             $pDNS = Read-Host "DNS Primario"
-            if (-not (Test-ValidIP $pDNS)) { Write-Error "IP Inválida."; Pause-Script; continue }
+            if (-not (Test-ValidIP $pDNS)) { Write-Error "IP Inválida."; Wait-UserPress; continue }
             
             $sDNS = Read-Host "DNS Secundario (Opcional)"
-            if ($sDNS -and -not (Test-ValidIP $sDNS)) { Write-Error "IP Inválida."; Pause-Script; continue }
+            if ($sDNS -and -not (Test-ValidIP $sDNS)) { Write-Error "IP Inválida."; Wait-UserPress; continue }
 
             Set-DNS -PrimaryDNS $pDNS -SecondaryDNS $sDNS
-            Pause-Script
+            Wait-UserPress
         }
         "3" {
-            if (-not $IsAdmin) { Write-Warning "Requiere permisos de Administrador."; Pause-Script; continue }
+            if (-not $IsAdmin) { Write-Warning "Requiere permisos de Administrador."; Wait-UserPress; continue }
             Set-DNS -AutomaticDNS
-            Pause-Script
+            Wait-UserPress
         }
         "4" {
             $newAdapter = Get-MainNetworkAdapter
@@ -494,11 +494,11 @@ do {
                 $Global:CurrentAdapterName = $newAdapter.Name
                 Write-Host "Adaptador actualizado a: $($newAdapter.Name)"
             }
-            Pause-Script
+            Wait-UserPress
         }
         "5" {
             Show-AllDNS
-            Pause-Script
+            Wait-UserPress
         }
         "0" { exit }
         default { Write-Host "Opción inválida." }
