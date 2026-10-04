@@ -60,7 +60,7 @@ Ejecuta `SwitchDNS.ps1` directamente para abrir el menú completo:
  Script para Alternar, Cambiar y Mostrar Servidor DNS (Optimizado)
 ==================================================================
 
-1. Alternar DNS (192.0.2.53 <-> 9.9.9.9)
+1. Alternar DNS (1.1.1.1 <-> 9.9.9.9)
 2. Configurar DNS Manualmente
 3. Configurar Automático (DHCP)
 4. Refrescar Vista / Cambiar Adaptador
@@ -70,14 +70,20 @@ Ejecuta `SwitchDNS.ps1` directamente para abrir el menú completo:
 
 ## ⚙️ Configuración Avanzada
 
-Puedes personalizar las direcciones IP predeterminadas editando las primeras líneas de `SwitchDNS.ps1`:
+Los valores por defecto del script son DNS públicos (Cloudflare y Quad9). Para usar los tuyos, por ejemplo un Pi-hole local, crea el fichero `%USERPROFILE%\.switchdns.config.json`. Vive fuera del repositorio, así que tus IP nunca se suben:
 
-```powershell
-# --- CONFIGURACIÓN GLOBAL ---
-$Global:PreferredAdapterName = "Ethernet" # Nombre preferido (opcional)
-$Global:ConfigA = @{ Primary = "192.0.2.53"; Secondary = "9.9.9.9" } # Tu DNS Local / Pi-Hole
-$Global:ConfigB = @{ Primary = "9.9.9.9"; Secondary = "192.0.2.53" } # DNS Público / Seguro
+```json
+{
+  "PreferredAdapterName": "Ethernet",
+  "ConfigA": { "Primary": "192.0.2.53", "Secondary": "9.9.9.9" },
+  "ConfigB": { "Primary": "9.9.9.9", "Secondary": "192.0.2.53" },
+  "LocalDnsIP": "192.0.2.53"
+}
 ```
+
+- `ConfigA` / `ConfigB`: las dos configuraciones entre las que alterna el script.
+- `LocalDnsIP`: tu DNS local; el menú lo muestra como «Pi-Hole/Local».
+- Si el fichero falta o no es válido, se usan los valores por defecto.
 
 ## 🗑️ Desinstalación
 

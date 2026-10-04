@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2026-10-04
+
+### Changed
+- **Local configuration file**: personal DNS servers, adapter name and the local DNS label now load from `%USERPROFILE%\.switchdns.config.json`, which lives outside the repository. Built-in defaults are public resolvers (Cloudflare and Quad9).
+
 ## [2.0.0] - 2026-01-02
 
 ### Added

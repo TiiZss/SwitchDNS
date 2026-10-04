@@ -16,11 +16,28 @@ param (
 # --- CONFIGURACIÓN GLOBAL ---
 # Puedes editar estos valores según tus necesidades
 $Global:PreferredAdapterName = "Ethernet"
-$Global:ConfigA = @{ Primary = "192.0.2.53"; Secondary = "9.9.9.9" }
-$Global:ConfigB = @{ Primary = "9.9.9.9"; Secondary = "192.0.2.53" }
+$Global:ConfigA = @{ Primary = "1.1.1.1"; Secondary = "9.9.9.9" }
+$Global:ConfigB = @{ Primary = "9.9.9.9"; Secondary = "1.1.1.1" }
+$Global:LocalDnsIP = $null   # IP de tu DNS local (Pi-hole), solo para la etiqueta del menú
+# Tus valores reales van en un fichero local que nunca se sube al repositorio:
+$Global:ConfigPath = Join-Path $env:USERPROFILE ".switchdns.config.json"
 $Global:BackupPath = "$env:USERPROFILE\.switchdns_backup.json"
 $Global:RegKeyPath = "HKCU:\Software\Classes\DesktopBackground\Shell\SwitchDNS"
 # ----------------------------
+
+# --- CONFIGURACIÓN LOCAL (opcional) ---
+if (Test-Path $Global:ConfigPath) {
+    try {
+        $localCfg = Get-Content -Path $Global:ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($localCfg.PreferredAdapterName) { $Global:PreferredAdapterName = $localCfg.PreferredAdapterName }
+        if ($localCfg.ConfigA) { $Global:ConfigA = @{ Primary = $localCfg.ConfigA.Primary; Secondary = $localCfg.ConfigA.Secondary } }
+        if ($localCfg.ConfigB) { $Global:ConfigB = @{ Primary = $localCfg.ConfigB.Primary; Secondary = $localCfg.ConfigB.Secondary } }
+        if ($localCfg.LocalDnsIP) { $Global:LocalDnsIP = $localCfg.LocalDnsIP }
+    }
+    catch {
+        Write-Warning "No se pudo leer $($Global:ConfigPath): $($_.Exception.Message). Se usan los valores por defecto."
+    }
+}
 
 # --- FUNCIONES ---
 
@@ -155,7 +172,7 @@ function Update-ContextMenuLabel {
         
         # Simplificación para mostrar "Quad9" en lugar de la IP si coincide
         if ($ip -eq "9.9.9.9") { $ip = "Quad9" }
-        elseif ($ip -eq "192.0.2.53") { $ip = "Pi-Hole/Local" }
+        elseif ($Global:LocalDnsIP -and $ip -eq $Global:LocalDnsIP) { $ip = "Pi-Hole/Local" }
         
         $label = "Alternar DNS (Actual: $ip)"
     }
